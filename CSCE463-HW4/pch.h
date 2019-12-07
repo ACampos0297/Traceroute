@@ -14,6 +14,8 @@
 
 #pragma once
 #pragma comment(lib, "ws2_32.lib")
+#pragma warning(disable : 4996)
+
 
 
 #ifndef PCH_H
@@ -22,13 +24,14 @@
 #pragma warning(disable : 4244)
 
 // add headers that you want to pre-compile here
-
-#include <stdio.h>
-#include <windows.h>
+#include "ICMPHeader.h"
+#include <WinSock2.h>
+#include <ws2tcpip.h>
 #include <string>
 #include <iostream>
 #include <ctime>
 #include <fstream>
+
 
 using namespace std;
 #endif //PCH_H
