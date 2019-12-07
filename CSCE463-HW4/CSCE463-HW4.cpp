@@ -53,7 +53,7 @@ public:
 /* now restore the previous packing state */
 #pragma pack (pop) 
 
-
+//keep track of pings that have received replies
 
 /*
 * ======================================================================
@@ -204,7 +204,8 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 	
-	int totalPkt = 0;
+	int totalPkt = 1;
+	bool hostFound = 0;
 	while (totalPkt < 30)
 	{
 		ret = WaitForSingleObject(handle, 500);
@@ -224,11 +225,17 @@ int main(int argc, char* argv[])
 			if ((router_icmp_hdr->type == ICMP_TTL_EXPIRE || router_icmp_hdr->type == ICMP_ECHO_REPLY)
 				&& router_icmp_hdr->code == 0)
 			{
+				cout << "Pkt:"<<totalPkt<<endl;
 				
 				if (ret==28 && router_icmp_hdr->type == ICMP_ECHO_REPLY)
 				{
 					totalPkt++;
-					cout << "host reached" << endl;
+					if (!hostFound)
+					{
+						cout << "host reached" << endl;
+						cout << "reached in hop: " << router_icmp_hdr->seq << endl;
+						hostFound = true;
+					}
 				}
 				else
 				{
