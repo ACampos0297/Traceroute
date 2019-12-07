@@ -24,13 +24,13 @@
 #pragma warning(disable : 4244)
 
 // add headers that you want to pre-compile here
-#include "ICMPHeader.h"
 #include <WinSock2.h>
 #include <ws2tcpip.h>
 #include <string>
 #include <iostream>
 #include <ctime>
 #include <fstream>
+#include <vector>
 
 
 using namespace std;

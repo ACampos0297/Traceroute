@@ -43,8 +43,8 @@ public:
 /* define the ICMP header (8 bytes) */
 class ICMPHeader {
 public:
-	u_char type;    /* ICMP packet type */
-	u_char code;    /* type subcode */
+	unsigned char type;    /* ICMP packet type */
+	unsigned char code;    /* type subcode */
 	u_short checksum;   /* checksum of the ICMP */
 	u_short id;    /* application-specific ID */
 	u_short seq;    /* application-specific sequence */
@@ -52,6 +52,8 @@ public:
 
 /* now restore the previous packing state */
 #pragma pack (pop) 
+
+
 
 /*
 * ======================================================================
@@ -178,10 +180,72 @@ int main(int argc, char* argv[])
 		int ret;
 		ret = sendto(sock, (char*)send_buf, packet_size, 0, (SOCKADDR*)& server, sizeof(server));
 		if (ret == SOCKET_ERROR) {
-			printf("send function failed with error = %d\n", WSAGetLastError());
+			printf("send function failed with error %d\n", WSAGetLastError());
 		}
 	}
 
+	//receive ICMP responses
+	int ret;
+	u_char rec_buf[MAX_REPLY_SIZE];/* this buffer starts with an IP header */
+	IPHeader* router_ip_hdr = (IPHeader*)rec_buf;
+	ICMPHeader* router_icmp_hdr = (ICMPHeader*)(router_ip_hdr + 1);
+	IPHeader* orig_ip_hdr = (IPHeader*)(router_icmp_hdr + 1);
+	ICMPHeader* orig_icmp_hdr = (ICMPHeader*)(orig_ip_hdr + 1);
 
+	sockaddr_in response;
+	int addrSize = sizeof(response);
+
+	HANDLE handle = new HANDLE;
+	WSAEVENT ICMPRecv = CreateEvent(NULL, false, false, NULL);
+	handle = ICMPRecv;
+
+	//receive
+	ret=WSAEventSelect(sock, ICMPRecv, FD_READ);
+	if (ret == SOCKET_ERROR) {
+		printf("WSAEventSelect failed with error %d\n", WSAGetLastError());
+		return -1;
+	}
+	
+	while (1)
+	{
+		ret = WaitForSingleObject(handle, 500);
+
+		if((ret = recvfrom(sock, (char*)rec_buf, MAX_REPLY_SIZE, 0, (SOCKADDR*)&response, &addrSize))<0)
+		{
+			printf("recv failed with error %d\n", WSAGetLastError());
+			WSACleanup();
+			return -1;
+		}
+
+
+		//make sure packet size >= 56 bytes
+		if (ret >= 56)
+		{
+			// check if this is TTL_expired or is an echo reply
+			if ((router_icmp_hdr->type == ICMP_TTL_EXPIRE || router_icmp_hdr->type == ICMP_ECHO_REPLY)
+				&& router_icmp_hdr->code == 0)
+			{
+				// check if process ID matches
+				if (orig_icmp_hdr->id == GetCurrentProcessId())
+				{
+					if (router_icmp_hdr->type == ICMP_ECHO_REPLY)
+					{
+						cout << "host reached" << endl;
+						return 0;
+					}
+
+					int rec_ttl = orig_icmp_hdr->seq;
+					long ip;
+					sockaddr_in service;
+					ip = router_ip_hdr->source_ip;
+					service.sin_addr.s_addr = ip;
+					char* ip_string = inet_ntoa(service.sin_addr);
+					cout << "TTL = " << rec_ttl << " IP " << ip_string<<endl;
+				}
+			}
+		}
+	}
+	closesocket(sock);
+	WSACleanup;
 	return 0;
 }
