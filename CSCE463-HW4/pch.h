@@ -14,6 +14,8 @@
 
 #pragma once
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "winmm.lib")
+
 #pragma warning(disable : 4996)
 
 
@@ -25,6 +27,8 @@
 
 // add headers that you want to pre-compile here
 #include <WinSock2.h>
+#include <stdio.h>
+#include <time.h>
 #include <ws2tcpip.h>
 #include <string>
 #include <iostream>
