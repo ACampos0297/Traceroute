@@ -240,8 +240,10 @@ int main(int argc, char* argv[])
 	int timeout;
 	while (!sentPings.empty())
 	{
-		timeout = 500;
-		
+		timeout = sentPings.at(0).timeout - timeGetTime();
+		if (timeout < 0)
+			timeout = 0;
+
 		//wait for timeout	
 		ret = WaitForSingleObject(handle, timeout);
   
