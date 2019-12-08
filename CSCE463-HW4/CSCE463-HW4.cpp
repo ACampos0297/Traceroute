@@ -63,9 +63,9 @@ public:
 	int count; //starts at 1
 	int time_sent;
 	int timeout;
-	string routerIP; //filled in when reply comes back
+	string routerIP= "<no DNS info>"; //filled in when reply comes back
 	bool host = false;
-	string routerName = "NO DNS INFO"; //filled in when performing DNS reverse lookup
+	string routerName; //filled in when performing DNS reverse lookup
 	Pings(int hop, int timeout, int ttl, int time_sent)
 	{
 		this->hop = hop;
@@ -76,6 +76,35 @@ public:
 		this->timeout = timeout;
 	}
 };
+
+//thread
+UINT WINAPI dnsThread(LPVOID params)
+{
+	Pings* p = (Pings*)params;
+
+	struct hostent* reverse;
+	// IPv4 demo of inet_ntop() and inet_pton()
+
+	struct sockaddr_in sa;
+	char str[INET_ADDRSTRLEN];
+
+	// store this IP address in sa:
+	inet_pton(AF_INET, p->routerIP.c_str(), &(sa.sin_addr));
+
+	reverse = gethostbyaddr((char*)&sa.sin_addr, 4, AF_INET);	
+
+	if (reverse == NULL)
+	{
+		p->routerName = "<no DNS info>";
+	}
+	else
+	{
+		p->routerName = string(reverse->h_name);
+	}
+
+
+	return 0;
+}
 
 /*
 * ======================================================================
@@ -151,7 +180,6 @@ int main(int argc, char* argv[])
 		// if a valid IP, directly drop its binary version into sin_addr
 		server.sin_addr.S_un.S_addr = IP;
 	}
-	printf("Tracerouting to %s...\n", inet_ntoa(server.sin_addr));
 
 	//OPEN TCP Socket
 	SOCKET sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
@@ -216,8 +244,6 @@ int main(int argc, char* argv[])
 		sentPings.push_back(hop);
 	}
 
-	
-
 	//receive ICMP responses
 	int ret;
 	u_char rec_buf[MAX_REPLY_SIZE];/* this buffer starts with an IP header */
@@ -228,7 +254,6 @@ int main(int argc, char* argv[])
 
 
 	HANDLE handle = new HANDLE;
-	vector<HANDLE> DNSHandles;
 	WSAEVENT ICMPRecv = CreateEvent(NULL, false, false, NULL);
 	handle = ICMPRecv;
 
@@ -282,7 +307,7 @@ int main(int argc, char* argv[])
 								ip = router_ip_hdr->source_ip;
 								service.sin_addr.s_addr = ip;
 								char* ip_string = inet_ntoa(service.sin_addr);
-								sentPings.at(i).routerIP = string(ip_string);
+								sentPings.at(i).routerIP = ip_string;
 								//pop out of sent pings and into completed pings
 								completedPings.push_back(sentPings.at(i));
 								sentPings.erase(sentPings.begin() + i);
@@ -307,7 +332,7 @@ int main(int argc, char* argv[])
 								ip = router_ip_hdr->source_ip;
 								service.sin_addr.s_addr = ip;
 								char* ip_string = inet_ntoa(service.sin_addr);
-								sentPings.at(i).routerIP = string(ip_string);
+								sentPings.at(i).routerIP = ip_string;
 
 								//pop out of sent pings and into completed pings
 								completedPings.push_back(sentPings[i]);
@@ -324,8 +349,6 @@ int main(int argc, char* argv[])
 					}
 
 				}
-
-
 			}
 		}
 		else
@@ -408,36 +431,63 @@ int main(int argc, char* argv[])
 			}
 		}	
 	}
+	
+	
+	vector<HANDLE> DNSHandles;
 
-	//FIX print
-	if (!completedPings.empty())
+	for (int i = 0; i < completedPings.size(); i++)
 	{
-		cout << string(5, '\n');
-		printf("Tracerouting to %s... Completed: %d\n", inet_ntoa(server.sin_addr), completedPings.size());
-
-		int hostHop = completedPings.size();
-		for (int i = 0; i < completedPings.size(); i++)
+		bool foundHost = false;
+		for (int j = 0; j < completedPings.size(); j++)
 		{
-			for (int j = 0; j < hostHop; j++)
+			if (completedPings.at(j).ttl == i + 1)
 			{
-				if (completedPings.at(j).ttl == i + 1)
-				{
-					cout << "Hop " << completedPings.at(j).hop;
-					cout << (completedPings.at(j).host ? " Host " : " Not Host");
-					if (completedPings.at(j).host)
-						hostHop = j;
-					cout << "DNS" << completedPings[j].routerName;
-					cout << " IP " << completedPings.at(j).routerIP;
-					cout << " time " << (double)(completedPings.at(j).rtt / (double)1000) << " ms" << endl;
-					break;
-				}
+				//DNS threasd
+				HANDLE handle = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)dnsThread, &completedPings[j], 0, NULL);
+				DNSHandles.push_back(handle);
+				
+				if (completedPings.at(j).host)
+					foundHost = true;
 			}
 		}
+		if (foundHost)
+			break;
 	}
 
+	for (int i = 0; i < DNSHandles.size(); i++)
+	{
+		WaitForSingleObject(DNSHandles[i], 500);
+		CloseHandle(DNSHandles[i]);
+	}
 	int end_time = timeGetTime() - run_time;
-	cout << "Routed to " << argv[1] << endl;
-	cout << "Execution time: " << end_time << "ms" << endl;
+	printf("Tracerouting to %s aka %s... \n", inet_ntoa(server.sin_addr), argv[1]);
+	for (int i = 0; i < completedPings.size(); i++)
+	{
+		bool foundHost = false;
+		for (int j = 0; j < completedPings.size(); j++)
+		{
+			if (completedPings.at(j).ttl == i + 1)
+			{
+				if (completedPings.at(j).rtt == -1)
+				{
+					cout << completedPings[j].hop << " *" << endl;
+					break;
+				}
+				cout <<completedPings.at(j).hop;
+				cout << " " << completedPings[j].routerName;
+				cout << " (" << completedPings.at(j).routerIP<<") ";
+				cout <<(double)(completedPings.at(j).rtt /1000.0) << " ms ";
+				cout << "(" << completedPings.at(j).count << ")" << endl;
+				if (completedPings.at(j).host)
+					foundHost = true;
+			}
+		}
+		if (foundHost)
+			break;
+	}
+
+	
+	cout << "\nExecution time: " << end_time << "ms" << endl;
 
 	closesocket(sock);
 	WSACleanup();
