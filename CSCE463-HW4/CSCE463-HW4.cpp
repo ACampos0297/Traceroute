@@ -65,9 +65,8 @@ public:
 	int timeout;
 	string routerIP; //filled in when reply comes back
 	bool host = false;
-	string routerName; //filled in when performing DNS reverse lookup
+	string routerName = "NO DNS INFO"; //filled in when performing DNS reverse lookup
 	HANDLE dns_thrd;
-	HANDLE finishedDNS;
 	Pings(int hop, int timeout, int ttl, int time_sent)
 	{
 		this->hop = hop;
@@ -78,6 +77,23 @@ public:
 		this->timeout = timeout;
 	}
 };
+
+
+UINT WINAPI dnsThread(LPVOID params)
+{
+	Pings* p = (Pings*)params;
+	
+	struct hostent* reverse;
+	reverse = gethostbyaddr((p->routerIP).c_str(), 4, AF_INET);
+
+	if (reverse != NULL)
+	{
+		if (reverse->h_name != NULL)
+			;//p->routerName = "Penis";
+	}
+
+	return 0;
+}
 
 /*
 * ======================================================================
@@ -172,7 +188,7 @@ int main(int argc, char* argv[])
 	//create vector to keep track of sent pings
 	vector<Pings> sentPings;
 	vector<Pings> completedPings;
-	vector<Pings> compleyedDNS;
+	vector<Pings> completedDNS;
 
 	//Send 30 ICMP requests
 	for (int i = 1; i <= 30; i++)
@@ -228,6 +244,7 @@ int main(int argc, char* argv[])
 
 
 	HANDLE handle = new HANDLE;
+	vector<HANDLE> DNSHandles;
 	WSAEVENT ICMPRecv = CreateEvent(NULL, false, false, NULL);
 	handle = ICMPRecv;
 
@@ -262,10 +279,6 @@ int main(int argc, char* argv[])
 				if ((router_icmp_hdr->type == ICMP_TTL_EXPIRE || router_icmp_hdr->type == ICMP_ECHO_REPLY)
 					&& router_icmp_hdr->code == 0)
 				{
-
-
-
-
 					if (ret == 28 && router_icmp_hdr->type == ICMP_ECHO_REPLY)
 					{
 						int rec_ttl = router_icmp_hdr->seq;
@@ -296,18 +309,6 @@ int main(int argc, char* argv[])
 					else
 					{
 						int rec_ttl = orig_icmp_hdr->seq;
-						/*
-						struct hostent* reverse;
-						//reverse = gethostbyaddr(ip_string, 4, AF_INET);
-						reverse = NULL;
-
-						cout << "TTL = " << rec_ttl << " IP " << ip_string << endl;
-						if (reverse != NULL)
-						{
-							cout << "Reverse name " << reverse->h_name << endl;
-						}
-						*/
-
 						//erase from sent pings
 						for (int i = 0; i < sentPings.size(); i++)
 						{
@@ -322,12 +323,13 @@ int main(int argc, char* argv[])
 								ip = router_ip_hdr->source_ip;
 								service.sin_addr.s_addr = ip;
 								char* ip_string = inet_ntoa(service.sin_addr);
-
 								sentPings.at(i).routerIP = string(ip_string);
 
 								//pop out of sent pings and into completed pings
-								completedPings.push_back(sentPings.at(i));
+								completedPings.push_back(sentPings[i]);
 								sentPings.erase(sentPings.begin() + i);
+								//start thread to look up DNS record
+								DNSHandles.push_back(CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)dnsThread, &completedPings[completedPings.size() - 1], 0, NULL));
 							}
 						}
 					}
@@ -416,14 +418,12 @@ int main(int argc, char* argv[])
 				sentPings.erase(sentPings.begin());
 			}
 		}
-
-		//change to print up to max current hop
 		
 		if (!completedPings.empty())
 		{
-			cout << string(50, '\n');
+			cout << string(5, '\n');
 			printf("Tracerouting to %s... Completed: %d\n", inet_ntoa(server.sin_addr), completedPings.size());
-			cout << "tracerouting to " << argv[1] << endl;
+
 			int hostHop = completedPings.size();
 			for (int i = 0; i < completedPings.size(); i++)
 			{
@@ -433,10 +433,10 @@ int main(int argc, char* argv[])
 					{
 						cout << "Hop " << completedPings.at(j).hop;
 						cout << (completedPings.at(j).host ? " Host " : " Not Host");
-						if(completedPings.at(j).host)
+						if (completedPings.at(j).host)
 							hostHop = j;
+						cout << "DNS" << completedPings[j].routerName;
 						cout << " IP " << completedPings.at(j).routerIP;
-						cout << " count (" << completedPings.at(j).count << ") ";
 						cout << " time " << (double)(completedPings.at(j).rtt / (double)1000) << " ms" << endl;
 						break;
 					}
@@ -444,10 +444,18 @@ int main(int argc, char* argv[])
 			}
 		}
 		
-		
 	}
 	
-	
+	for (int i = 0; i < DNSHandles.size(); i++)
+	{
+		WaitForSingleObject(DNSHandles[i], 5000);
+	}
+	cout << endl << endl;
+	for (int i = 0; i < completedPings.size(); i++)
+	{
+		cout << completedPings[i].routerName << endl;
+	}
+
 
 	closesocket(sock);
 	WSACleanup();
