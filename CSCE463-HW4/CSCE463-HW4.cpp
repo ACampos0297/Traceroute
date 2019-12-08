@@ -71,7 +71,7 @@ public:
 	Pings(int hop, int timeout, int ttl, int time_sent)
 	{
 		this->hop = hop;
-		rtt = 0;
+		rtt = -1;
 		count = 1;
 		this->time_sent = time_sent;
 		this->ttl = ttl;
@@ -172,6 +172,7 @@ int main(int argc, char* argv[])
 	//create vector to keep track of sent pings
 	vector<Pings> sentPings;
 	vector<Pings> completedPings;
+	vector<Pings> compleyedDNS;
 
 	//Send 30 ICMP requests
 	for (int i = 1; i <= 30; i++)
@@ -236,105 +237,191 @@ int main(int argc, char* argv[])
 		printf("WSAEventSelect failed with error %d\n", WSAGetLastError());
 		return -1;
 	}
-	
+	int timeout;
 	while (!sentPings.empty())
 	{
-		ret = WaitForSingleObject(handle, 50);
-
-		if ((ret = recvfrom(sock, (char*)rec_buf, MAX_REPLY_SIZE, 0, NULL, NULL)) < 0)
+		timeout = 500;
+		
+		//wait for timeout	
+		ret = WaitForSingleObject(handle, timeout);
+  
+		if(ret==0)
 		{
-			printf("recv failed with error %d\n", WSAGetLastError());
-			WSACleanup();
-			return -1;
-		}
-
-
-		// check if process ID matches
-		if (orig_icmp_hdr->id == GetCurrentProcessId())
-		{
-			// check if this is TTL_expired or is an echo reply
-			if ((router_icmp_hdr->type == ICMP_TTL_EXPIRE || router_icmp_hdr->type == ICMP_ECHO_REPLY)
-				&& router_icmp_hdr->code == 0)
+			if ((ret = recvfrom(sock, (char*)rec_buf, MAX_REPLY_SIZE, 0, NULL, NULL)) < 0)
 			{
-				
-
-				
-				
-				if (ret==28 && router_icmp_hdr->type == ICMP_ECHO_REPLY)
-				{
-					int rec_ttl = router_icmp_hdr->seq;
-					//erase from sent pings
-					for (int i = 0; i < sentPings.size(); i++)
-					{
-						if (sentPings.at(i).ttl == rec_ttl)
-						{
-							//time received
-							sentPings.at(i).rtt = timeGetTime() - sentPings.at(i).time_sent;
-							//host
-							sentPings.at(i).host = true;
-							//save IP
-							//get received IP
-							long ip;
-							sockaddr_in service;
-							ip = router_ip_hdr->source_ip;
-							service.sin_addr.s_addr = ip;
-							char* ip_string = inet_ntoa(service.sin_addr);
-							sentPings.at(i).routerIP = string(ip_string);
-							//pop out of sent pings and into completed pings
-							completedPings.push_back(sentPings.at(i));
-							sentPings.erase(sentPings.begin() + i);
-						}
-					}
-					
-				}
-				else
-				{
-					int rec_ttl = orig_icmp_hdr->seq;
-					/*
-					struct hostent* reverse;
-					//reverse = gethostbyaddr(ip_string, 4, AF_INET);
-					reverse = NULL;
-
-					cout << "TTL = " << rec_ttl << " IP " << ip_string << endl;
-					if (reverse != NULL)
-					{
-						cout << "Reverse name " << reverse->h_name << endl;
-					}
-					*/
-
-					//erase from sent pings
-					for(int i=0;i<sentPings.size();i++)
-					{
-						if (sentPings.at(i).ttl == rec_ttl)
-						{
-							//time received
-							sentPings.at(i).rtt = timeGetTime() - sentPings.at(i).time_sent;
-							//save IP
-							//get received IP
-							long ip;
-							sockaddr_in service;
-							ip = router_ip_hdr->source_ip;
-							service.sin_addr.s_addr = ip;
-							char* ip_string = inet_ntoa(service.sin_addr);
-
-							sentPings.at(i).routerIP = string(ip_string);
-
-							//pop out of sent pings and into completed pings
-							completedPings.push_back(sentPings.at(i));
-							sentPings.erase(sentPings.begin() + i);
-						}
-					}
-				}
-				
+				printf("recv failed with error %d\n", WSAGetLastError());
+				WSACleanup();
+				return -1;
 			}
+			// check if process ID matches
+			if (orig_icmp_hdr->id == GetCurrentProcessId())
+			{
+				// check if this is TTL_expired or is an echo reply
+				if ((router_icmp_hdr->type == ICMP_TTL_EXPIRE || router_icmp_hdr->type == ICMP_ECHO_REPLY)
+					&& router_icmp_hdr->code == 0)
+				{
 
-			
+
+
+
+					if (ret == 28 && router_icmp_hdr->type == ICMP_ECHO_REPLY)
+					{
+						int rec_ttl = router_icmp_hdr->seq;
+						//erase from sent pings
+						for (int i = 0; i < sentPings.size(); i++)
+						{
+							if (sentPings.at(i).ttl == rec_ttl)
+							{
+								//time received
+								sentPings.at(i).rtt = timeGetTime() - sentPings.at(i).time_sent;
+								//host
+								sentPings.at(i).host = true;
+								//save IP
+								//get received IP
+								long ip;
+								sockaddr_in service;
+								ip = router_ip_hdr->source_ip;
+								service.sin_addr.s_addr = ip;
+								char* ip_string = inet_ntoa(service.sin_addr);
+								sentPings.at(i).routerIP = string(ip_string);
+								//pop out of sent pings and into completed pings
+								completedPings.push_back(sentPings.at(i));
+								sentPings.erase(sentPings.begin() + i);
+							}
+						}
+
+					}
+					else
+					{
+						int rec_ttl = orig_icmp_hdr->seq;
+						/*
+						struct hostent* reverse;
+						//reverse = gethostbyaddr(ip_string, 4, AF_INET);
+						reverse = NULL;
+
+						cout << "TTL = " << rec_ttl << " IP " << ip_string << endl;
+						if (reverse != NULL)
+						{
+							cout << "Reverse name " << reverse->h_name << endl;
+						}
+						*/
+
+						//erase from sent pings
+						for (int i = 0; i < sentPings.size(); i++)
+						{
+							if (sentPings.at(i).ttl == rec_ttl)
+							{
+								//time received
+								sentPings.at(i).rtt = timeGetTime() - sentPings.at(i).time_sent;
+								//save IP
+								//get received IP
+								long ip;
+								sockaddr_in service;
+								ip = router_ip_hdr->source_ip;
+								service.sin_addr.s_addr = ip;
+								char* ip_string = inet_ntoa(service.sin_addr);
+
+								sentPings.at(i).routerIP = string(ip_string);
+
+								//pop out of sent pings and into completed pings
+								completedPings.push_back(sentPings.at(i));
+								sentPings.erase(sentPings.begin() + i);
+							}
+						}
+					}
+
+				}
+
+
+			}
 		}
+		else
+		{
+			if (sentPings.at(0).count == 3)
+			{
+				//pop out of sent pings and into completed pings
+				completedPings.push_back(sentPings.at(0));
+				sentPings.erase(sentPings.begin());
+			}
+			else {
+				//we timed out
+				int timedoutTTL = sentPings.at(0).ttl;
+				Pings* previous = NULL;
+				Pings* next = NULL;
+				for (int i = 0; i < completedPings.size(); i++)
+				{
+					if (completedPings.at(i).ttl == (timedoutTTL - 1))
+					{
+						previous = &completedPings.at(i);
+					}
+					else if (completedPings.at(i).ttl == (timedoutTTL + 1))
+					{
+						next = &completedPings.at(i);
+					}
+				}
+				if (previous != NULL && next != NULL) //we have previous RTT and next RTT
+				{
+					sentPings.at(0).timeout = 2 * ((int)(previous->rtt) + (int)(next->rtt) / 2.0);
+				}
+				else if (previous != NULL) //we have previous RTT so double that
+				{
+					sentPings.at(0).timeout = 2 * ((int)(previous->rtt));
+				}
+				else if (next != NULL) //we have next RTT so 150% that
+					sentPings.at(0).timeout = (int)(next->rtt) * 1.5;
+				else
+					sentPings.at(0).timeout = DEFAULT_TIMEOUT;
+
+
+				//send packet
+				int ttl = timedoutTTL;
+				// buffer for the ICMP header 
+				u_char send_buf[MAX_ICMP_SIZE];  /* IP header is not present here */
+
+				ICMPHeader* icmp = (ICMPHeader*)send_buf;
+
+				// set up the echo request 
+				// no need to flip the byte order since fields are 1 byte each 
+				icmp->type = ICMP_ECHO_REQUEST;
+				icmp->code = 0;
+
+				// set up ID/SEQ fields as needed 
+				icmp->id = (u_short)GetCurrentProcessId();
+				icmp->seq = ttl;
+				// initialize checksum to zero 
+				icmp->checksum = 0;
+
+				/* calculate the checksum */
+				int packet_size = sizeof(ICMPHeader);   // 8 bytes 
+				icmp->checksum = ip_checksum((u_short*)send_buf, packet_size);
+
+				// set our TTL
+				if (setsockopt(sock, IPPROTO_IP, IP_TTL, (const char*)& ttl, sizeof(ttl)) == SOCKET_ERROR) {
+					closesocket(sock);
+					printf("Unable to set TTL\n");
+					return -1;
+				}
+
+				//send packet
+				ret = sendto(sock, (char*)send_buf, packet_size, 0, (SOCKADDR*)& server, sizeof(server));
+				if (ret == SOCKET_ERROR) {
+					printf("send function failed with error %d\n", WSAGetLastError());
+				}
+
+				//add current hop to sentPings
+				sentPings.at(0).count++;
+				sentPings.push_back(sentPings.at(0));
+				sentPings.erase(sentPings.begin());
+			}
+		}
+
+		//change to print up to max current hop
+		
 		if (!completedPings.empty())
 		{
 			cout << string(50, '\n');
 			printf("Tracerouting to %s... Completed: %d\n", inet_ntoa(server.sin_addr), completedPings.size());
-
+			cout << "tracerouting to " << argv[1] << endl;
 			int hostHop = completedPings.size();
 			for (int i = 0; i < completedPings.size(); i++)
 			{
@@ -347,12 +434,15 @@ int main(int argc, char* argv[])
 						if(completedPings.at(j).host)
 							hostHop = j;
 						cout << " IP " << completedPings.at(j).routerIP;
+						cout << " count (" << completedPings.at(j).count << ") ";
 						cout << " time " << (double)(completedPings.at(j).rtt / (double)1000) << " ms" << endl;
 						break;
 					}
 				}
 			}
 		}
+		
+		
 	}
 	
 	
